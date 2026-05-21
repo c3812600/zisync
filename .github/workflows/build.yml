@@ -45,6 +45,10 @@ jobs:
         echo "Installed packages:"
         dpkg -l | grep -E "(libssl|libevent|protobuf|zmq|sqlite|uuid)"
 
+    - name: Generate configure script
+      run: |
+        autoreconf -fi
+
     - name: Configure
       run: |
         ./configure --prefix=$(pwd)/install
