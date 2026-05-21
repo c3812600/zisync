@@ -44,6 +44,14 @@ jobs:
         echo "Using system packages for all dependencies"
         echo "Installed packages:"
         dpkg -l | grep -E "(libssl|libevent|protobuf|zmq|sqlite|uuid)"
+        
+        # Create third-part/build directories and symlink system protoc
+        mkdir -p third-part/build/bin third-part/build/lib third-part/build/include
+        
+        # Symlink system protoc to expected location
+        ln -sf $(which protoc) third-part/build/bin/protoc
+        echo "Created symlink for protoc:"
+        ls -la third-part/build/bin/
 
     - name: Generate configure script
       run: |
