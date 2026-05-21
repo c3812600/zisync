@@ -41,31 +41,12 @@ jobs:
 
     - name: Build third-party libraries
       run: |
-        cd third-part
-        mkdir -p build/lib build/include build/bin
-        
-        # Build sqlcipher (encrypted SQLite)
-        echo "Building sqlcipher..."
-        cd sqlcipher
-        ./configure --prefix=$(pwd)/../build --disable-shared --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" LDFLAGS="-lcrypto"
-        make -j$(nproc)
-        make install
-        cd ..
-        
-        # Build libtar
-        echo "Building libtar..."
-        cd libtar-1.2.16
-        ./configure --prefix=$(pwd)/../build --disable-shared
-        make -j$(nproc)
-        make install
-        cd ..
-        
-        # Note: Using system libevent, openssl, protobuf, zmq
-        echo "Third-party build complete"
+        echo "Using system packages for all dependencies"
+        echo "Installed packages:"
+        dpkg -l | grep -E "(libssl|libevent|protobuf|zmq|sqlite|uuid)"
 
     - name: Configure
       run: |
-        export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH"
         ./configure --prefix=$(pwd)/install
       env:
         CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
