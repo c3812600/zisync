@@ -1,0 +1,262 @@
+name: Build ZiSync
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
+          cmake \
+          libprotobuf-dev \
+          protobuf-compiler \
+          libssl-dev \
+          libevent-dev \
+          libsqlite3-dev \
+          libzmq3-dev \
+          uuid-dev \
+          libtar-dev
+
+    - name: Build third-party libraries
+      run: |
+        cd third-part
+        chmod +x build-third-part.sh 2>/dev/null || true
+        
+        # Build libevent
+        if [ ! -f "build/lib/libevent.a" ]; then
+          echo "Building libevent..."
+          tar -xzf libevent-2.0.21-stable.tar.gz 2>/dev/null || true
+          cd libevent-2.0.21-stable
+          ./configure --prefix=$(pwd)/../build --disable-shared --enable-static
+          make -j$(nproc)
+          make install
+          cd ..
+        fi
+        
+        # Build protobuf if needed
+        # For now we'll use system protobuf
+
+    - name: Configure
+      run: |
+        ./configure --prefix=$(pwd)/install
+      env:
+        CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+        CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+
+    - name: Build
+      run: |
+        make -j$(nproc)
+
+    - name: Create package
+      if: github.event_name == 'release'
+      run: |
+        mkdir -p dist
+        cp src/libzskernel.a dist/
+        cp -r include dist/
+        cd dist
+        tar -czf ../zisync-linux-${{ matrix.compiler }}-${{ github.ref_name }}.tar.gz *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name != 'release'
+      with:
+        name: zisync-linux-${{ matrix.compiler }}
+        path: |
+          src/libzskernel.a
+          include/
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'release'
+      with:
+        files: |
+          zisync-linux-*.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        brew install \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
+          cmake \
+          protobuf \
+          openssl \
+          libevent \
+          zeromq \
+          ossp-uuid
+
+    - name: Configure
+      run: |
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl/lib/pkgconfig:/opt/homebrew/opt/libevent/lib/pkgconfig:$PKG_CONFIG_PATH"
+        ./configure --prefix=$(pwd)/install
+
+    - name: Build
+      run: |
+        make -j$(sysctl -n hw.ncpu)
+
+    - name: Create package
+      if: github.event_name == 'release'
+      run: |
+        mkdir -p dist
+        cp src/libzskernel.a dist/
+        cp -r include dist/
+        cd dist
+        tar -czf ../zisync-macos-arm64-${{ github.ref_name }}.tar.gz *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name != 'release'
+      with:
+        name: zisync-macos
+        path: |
+          src/libzskernel.a
+          include/
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'release'
+      with:
+        files: |
+          zisync-macos-*.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Android NDK
+      uses: nttld/setup-ndk@v1
+      id: setup-ndk
+      with:
+        ndk-version: r21e
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
+          cmake
+
+    - name: Build for Android
+      run: |
+        export ANDROID_NDK=$ANDROID_NDK_HOME
+        export TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64
+        ./build_android.sh
+      env:
+        ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name != 'release'
+      with:
+        name: zisync-android
+        path: |
+          build/android/
+          include/
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'release'
+      with:
+        files: |
+          build/android/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-openssl
+          mingw-w64-x86_64-libevent
+          mingw-w64-x86_64-zeromq
+          mingw-w64-x86_64-protobuf
+          mingw-w64-x86_64-sqlite3
+
+    - name: Build
+      shell: msys2 {0}
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -G "MSYS Makefiles" \
+          -DCMAKE_INSTALL_PREFIX=$(pwd)/install \
+          -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+
+    - name: Create package
+      if: github.event_name == 'release'
+      shell: msys2 {0}
+      run: |
+        cd build
+        mkdir -p dist
+        cp libzskernel.a dist/ 2>/dev/null || cp libzskernel.dll dist/ 2>/dev/null || true
+        cd dist
+        7z a ../zisync-windows-x64-${{ github.ref_name }}.zip *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      if: github.event_name != 'release'
+      with:
+        name: zisync-windows
+        path: build/dist/
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'release'
+      with:
+        files: |
+          build/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
