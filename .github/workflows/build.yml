@@ -42,24 +42,30 @@ jobs:
     - name: Build third-party libraries
       run: |
         cd third-part
-        chmod +x build-third-part.sh 2>/dev/null || true
+        mkdir -p build/lib build/include build/bin
         
-        # Build libevent
-        if [ ! -f "build/lib/libevent.a" ]; then
-          echo "Building libevent..."
-          tar -xzf libevent-2.0.21-stable.tar.gz 2>/dev/null || true
-          cd libevent-2.0.21-stable
-          ./configure --prefix=$(pwd)/../build --disable-shared --enable-static
-          make -j$(nproc)
-          make install
-          cd ..
-        fi
+        # Build sqlcipher (encrypted SQLite)
+        echo "Building sqlcipher..."
+        cd sqlcipher
+        ./configure --prefix=$(pwd)/../build --disable-shared --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC" LDFLAGS="-lcrypto"
+        make -j$(nproc)
+        make install
+        cd ..
         
-        # Build protobuf if needed
-        # For now we'll use system protobuf
+        # Build libtar
+        echo "Building libtar..."
+        cd libtar-1.2.16
+        ./configure --prefix=$(pwd)/../build --disable-shared
+        make -j$(nproc)
+        make install
+        cd ..
+        
+        # Note: Using system libevent, openssl, protobuf, zmq
+        echo "Third-party build complete"
 
     - name: Configure
       run: |
+        export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH"
         ./configure --prefix=$(pwd)/install
       env:
         CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
@@ -119,7 +125,9 @@ jobs:
 
     - name: Configure
       run: |
-        export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl/lib/pkgconfig:/opt/homebrew/opt/libevent/lib/pkgconfig:$PKG_CONFIG_PATH"
+        export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl/lib/pkgconfig:/opt/homebrew/opt/libevent/lib/pkgconfig:/opt/homebrew/opt/zeromq/lib/pkgconfig:$PKG_CONFIG_PATH"
+        export LDFLAGS="-L/opt/homebrew/opt/openssl/lib -L/opt/homebrew/opt/libevent/lib -L/opt/homebrew/opt/zeromq/lib"
+        export CPPFLAGS="-I/opt/homebrew/opt/openssl/include -I/opt/homebrew/opt/libevent/include -I/opt/homebrew/opt/zeromq/include"
         ./configure --prefix=$(pwd)/install
 
     - name: Build
